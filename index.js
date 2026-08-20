@@ -1,15 +1,35 @@
 const express = require("express");
 const cors = require("cors");
 const http = require("http");
-const { WebSocketServer } = require("ws");
+const { WebSocketServer, WebSocket } = require("ws");
 
 const app = express();
 
-app.use(cors({ origin: ["https://res-front-sable.vercel.app", "*"] }));
-app.use(express.json());
+const PORT = process.env.PORT || 4000;
 
+// ======================================================
+// Middleware
+// ======================================================
+
+app.use(cors({ origin: ["https://res-front-sable.vercel.app", "*"] }));
+
+
+app.use(
+    express.json({
+        limit: "10mb"
+    })
+);
+
+// ======================================================
+// HTTP Server
+// ======================================================
 
 const server = http.createServer(app);
+
+// ======================================================
+// WebSocket Server
+// /print-agent
+// ======================================================
 
 const wss = new WebSocketServer({
     server,
@@ -18,10 +38,12 @@ const wss = new WebSocketServer({
 
 // ======================================================
 // Connected Print Agents
+//
+// POS-001 -> Computer 1
+// POS-002 -> Computer 2
 // ======================================================
 
 const agents = new Map();
-
 
 // ======================================================
 // WebSocket Connection
@@ -29,15 +51,15 @@ const agents = new Map();
 
 wss.on("connection", (ws) => {
 
-    console.log("=================================");
+    console.log("--------------------------------");
     console.log("Print Agent connected");
-    console.log("=================================");
+    console.log("--------------------------------");
 
     let agentId = null;
 
-    // --------------------------------------------------
-    // Message received from agent
-    // --------------------------------------------------
+    // ==================================================
+    // Message from Agent
+    // ==================================================
 
     ws.on("message", (message) => {
 
@@ -47,14 +69,8 @@ wss.on("connection", (ws) => {
                 message.toString()
             );
 
-            console.log(
-                "Agent message:",
-                data
-            );
-
-
             // ==========================================
-            // REGISTER
+            // REGISTER AGENT
             // ==========================================
 
             if (data.type === "REGISTER") {
@@ -64,18 +80,23 @@ wss.on("connection", (ws) => {
                     ws.send(
                         JSON.stringify({
                             type: "ERROR",
-                            message: "agentId required"
+                            message: "agentId is required"
                         })
                     );
 
                     return;
                 }
 
-                agentId = data.agentId;
+                agentId = String(
+                    data.agentId
+                ).trim();
 
-                // If same agent was already connected,
-                // remove old connection
-                const oldAgent = agents.get(agentId);
+                // --------------------------------------
+                // Close old connection if same agent
+                // --------------------------------------
+
+                const oldAgent =
+                    agents.get(agentId);
 
                 if (
                     oldAgent &&
@@ -88,7 +109,12 @@ wss.on("connection", (ws) => {
                     );
 
                     oldAgent.close();
+
                 }
+
+                // --------------------------------------
+                // Save agent
+                // --------------------------------------
 
                 agents.set(
                     agentId,
@@ -100,10 +126,13 @@ wss.on("connection", (ws) => {
                 );
 
                 console.log(
-                    `Online agents:`,
+                    "Online agents:",
                     [...agents.keys()]
                 );
 
+                // --------------------------------------
+                // Registration response
+                // --------------------------------------
 
                 ws.send(
                     JSON.stringify({
@@ -115,20 +144,15 @@ wss.on("connection", (ws) => {
                 return;
             }
 
-
             // ==========================================
             // PRINT RESULT
             // ==========================================
 
             if (data.type === "PRINT_RESULT") {
 
-                console.log(
-                    "================================="
-                );
-
-                console.log(
-                    "PRINT RESULT"
-                );
+                console.log("--------------------------------");
+                console.log("PRINT RESULT");
+                console.log("--------------------------------");
 
                 console.log(
                     "Agent:",
@@ -150,22 +174,19 @@ wss.on("connection", (ws) => {
                     data.results
                 );
 
-                console.log(
-                    "================================="
-                );
+                console.log("--------------------------------");
 
                 return;
             }
 
-
             // ==========================================
-            // PING
+            // PONG
             // ==========================================
 
             if (data.type === "PONG") {
 
                 console.log(
-                    `Agent ${agentId} is alive`
+                    `Agent alive: ${agentId}`
                 );
 
                 return;
@@ -182,40 +203,43 @@ wss.on("connection", (ws) => {
 
     });
 
-
-    // --------------------------------------------------
+    // ==================================================
     // Agent disconnected
-    // --------------------------------------------------
+    // ==================================================
 
     ws.on("close", () => {
 
-        if (agentId) {
-
-            // Only delete if this is the current
-            // connection for this agent
-            if (agents.get(agentId) === ws) {
-
-                agents.delete(agentId);
-
-            }
-
-            console.log(
-                `Agent disconnected: ${agentId}`
-            );
-
-            console.log(
-                "Online agents:",
-                [...agents.keys()]
-            );
+        if (!agentId) {
+            return;
         }
+
+        // Only remove this connection if it is still
+        // the current connection for this agent.
+        if (agents.get(agentId) === ws) {
+
+            agents.delete(agentId);
+
+        }
+
+        console.log(
+            `Agent disconnected: ${agentId}`
+        );
+
+        console.log(
+            "Online agents:",
+            [...agents.keys()]
+        );
 
     });
 
+    // ==================================================
+    // WebSocket error
+    // ==================================================
 
     ws.on("error", (error) => {
 
         console.error(
-            `Agent WebSocket error (${agentId}):`,
+            `WebSocket error (${agentId || "unknown"}):`,
             error.message
         );
 
@@ -223,9 +247,8 @@ wss.on("connection", (ws) => {
 
 });
 
-
 // ======================================================
-// Health
+// Health Check
 // ======================================================
 
 app.get(
@@ -233,17 +256,22 @@ app.get(
     (req, res) => {
 
         res.json({
+
             success: true,
-            service: "FoodFlow Print Backend",
-            agents: [...agents.keys()]
+
+            service:
+                "FoodFlow Print Backend",
+
+            agents:
+                [...agents.keys()]
+
         });
 
     }
 );
 
-
 // ======================================================
-// Agent Status
+// Print Agent Status
 // ======================================================
 
 app.get(
@@ -258,21 +286,27 @@ app.get(
         ) {
 
             result.push({
+
                 agentId,
+
                 online:
-                    ws.readyState === WebSocket.OPEN
+                    ws.readyState ===
+                    WebSocket.OPEN
+
             });
 
         }
 
         res.json({
+
             success: true,
+
             agents: result
+
         });
 
     }
 );
-
 
 // ======================================================
 // PRINT
@@ -289,10 +323,9 @@ app.post(
                 printData
             } = req.body;
 
-
-            // ------------------------------------------
-            // Validate agent
-            // ------------------------------------------
+            // ==========================================
+            // Validate Agent ID
+            // ==========================================
 
             if (!agentId) {
 
@@ -307,10 +340,9 @@ app.post(
 
             }
 
-
-            // ------------------------------------------
-            // Validate print data
-            // ------------------------------------------
+            // ==========================================
+            // Validate Print Data
+            // ==========================================
 
             if (!printData) {
 
@@ -325,14 +357,12 @@ app.post(
 
             }
 
-
-            // ------------------------------------------
-            // Find agent
-            // ------------------------------------------
+            // ==========================================
+            // Find Agent
+            // ==========================================
 
             const agent =
                 agents.get(agentId);
-
 
             if (!agent) {
 
@@ -347,15 +377,16 @@ app.post(
 
             }
 
-
-            // ------------------------------------------
-            // Check connection
-            // ------------------------------------------
+            // ==========================================
+            // Check WebSocket
+            // ==========================================
 
             if (
                 agent.readyState !==
                 WebSocket.OPEN
             ) {
+
+                agents.delete(agentId);
 
                 return res.status(503).json({
 
@@ -368,40 +399,54 @@ app.post(
 
             }
 
-
-            // ------------------------------------------
-            // Create Job ID
-            // ------------------------------------------
+            // ==========================================
+            // Generate Job ID
+            // ==========================================
 
             const jobId =
-                `JOB-${Date.now()}`;
+                `JOB-${Date.now()}-${Math.random()
+                    .toString(36)
+                    .substring(2, 7)}`;
 
+            // ==========================================
+            // Send Print Job
+            // ==========================================
 
-            // ------------------------------------------
-            // Send print command
-            // ------------------------------------------
+            const printJob = {
+
+                type: "PRINT",
+
+                jobId,
+
+                agentId,
+
+                printData
+
+            };
 
             agent.send(
-                JSON.stringify({
-
-                    type: "PRINT",
-
-                    jobId,
-
-                    printData
-
-                })
+                JSON.stringify(printJob)
             );
 
+            console.log("--------------------------------");
+            console.log("PRINT JOB SENT");
+            console.log("--------------------------------");
 
             console.log(
-                `Print job ${jobId} sent to ${agentId}`
+                "Job ID:",
+                jobId
             );
 
+            console.log(
+                "Agent:",
+                agentId
+            );
 
-            // ------------------------------------------
-            // Response
-            // ------------------------------------------
+            console.log("--------------------------------");
+
+            // ==========================================
+            // API Response
+            // ==========================================
 
             return res.json({
 
@@ -437,21 +482,21 @@ app.post(
     }
 );
 
-
 // ======================================================
-// Server
+// Start Server
 // ======================================================
 
 server.listen(
     PORT,
     () => {
 
-        console.log(
-            "================================="
-        );
+        console.log("");
+        console.log("=================================");
+        console.log(" FoodFlow Print Backend");
+        console.log("=================================");
 
         console.log(
-            `FoodFlow Backend running on port ${PORT}`
+            `HTTP: http://localhost:${PORT}`
         );
 
         console.log(
@@ -459,8 +504,8 @@ server.listen(
         );
 
         console.log(
-            "================================="
-        );
+            "=================================");
+        console.log("");
 
     }
 );
