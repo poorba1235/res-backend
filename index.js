@@ -9,13 +9,6 @@ app.use(cors({ origin: ["https://res-front-sable.vercel.app", "*"] }));
 app.use(express.json());
 
 
-const express = require("express");
-const cors = require("cors");
-const http = require("http");
-const { WebSocketServer, WebSocket } = require("ws");
-
-const app = express();
-
 const server = http.createServer(app);
 
 const wss = new WebSocketServer({
