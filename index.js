@@ -5,7 +5,7 @@ const { WebSocketServer } = require("ws");
 
 const app = express();
 
-app.use(cors({origin: ["http://localhost:5173", "*"]}));
+app.use(cors({ origin: ["https://res-front-sable.vercel.app", "*"] }));
 app.use(express.json());
 
 const PORT = 4000;
